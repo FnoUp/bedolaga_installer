@@ -474,9 +474,9 @@ docker compose build --pull
 
 log_step "ШАГ 10: Запуск Bedolaga"
 
-# Создаём директории которые монтируются в контейнер
-mkdir -p "$INSTALL_DIR"/{data/backups,logs,uploads}
-chmod -R 777 "$INSTALL_DIR"/{data,logs,uploads}
+# Создаём директории которые монтируются в контейнер (бот запускается как UID 1000:1000)
+mkdir -p "$INSTALL_DIR"/{data/backups,logs/current,locales,uploads}
+chmod -R 777 "$INSTALL_DIR"/{data,logs,locales,uploads}
 
 docker compose up -d
 
