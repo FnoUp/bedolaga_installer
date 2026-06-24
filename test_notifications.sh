@@ -241,9 +241,18 @@ case "$MODE" in
             log_info "Установите: bash /opt/bedolaga/install_bedolaga.sh"
             exit 1
         fi
-        RENEWED_LINEAGE="/etc/letsencrypt/live/vpn.example.com" \
-        RENEWED_DOMAINS="vpn.example.com sub.vpn.example.com" \
-        bash "$HOOK" && log_ok "TLS-уведомление отправлено в топик 13" || log_err "Ошибка отправки"
+
+        # Тест с реальными сертификатами панели
+        LINEAGE1=$(ls -d /etc/letsencrypt/live/*/ 2>/dev/null | grep -v README | head -1 || true)
+        if [[ -n "$LINEAGE1" ]]; then
+            DOMAINS1=$(basename "$LINEAGE1")
+            log_info "Симуляция: обновление на ПАНЕЛИ ($DOMAINS1)"
+            RENEWED_LINEAGE="$LINEAGE1" \
+            RENEWED_DOMAINS="$DOMAINS1" \
+            bash "$HOOK" && log_ok "TLS-панель → топик 13" || log_err "Ошибка"
+        else
+            log_warn "Нет сертификатов на панели для теста"
+        fi
         ;;
     --all|*)
         banner "ВСЕ УВЕДОМЛЕНИЯ"

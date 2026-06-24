@@ -538,17 +538,24 @@ CERTBOT_HOOK_FILE="$CERTBOT_HOOK_DIR/bedolaga-tls-notify.sh"
 
 if command -v certbot &>/dev/null && [[ -d "/etc/letsencrypt" ]]; then
     mkdir -p "$CERTBOT_HOOK_DIR"
+    # Универсальный хук: работает на панели (/opt/bedolaga/.env)
+    # и на нодах (/etc/bedolaga-notify.env). NODE_NAME — из env или hostname.
     cat > "$CERTBOT_HOOK_FILE" << 'HOOKEOF'
 #!/bin/bash
-# Certbot deploy hook — уведомление в Telegram (топик 13) после обновления TLS.
+# Certbot deploy hook — универсальный (панель + ноды).
 # Certbot передаёт: $RENEWED_LINEAGE, $RENEWED_DOMAINS
 set -euo pipefail
-ENV_FILE="/opt/bedolaga/.env"
-[[ ! -f "$ENV_FILE" ]] && exit 0
+ENV_FILE=""
+for _f in "/opt/bedolaga/.env" "/etc/bedolaga-notify.env"; do
+    [[ -f "$_f" ]] && { ENV_FILE="$_f"; break; }
+done
+[[ -z "$ENV_FILE" ]] && exit 0
 _get() { grep -m1 "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d "\"' " || true; }
 export BOT_TOKEN; BOT_TOKEN=$(_get BOT_TOKEN)
 export CHAT_ID;   CHAT_ID=$(_get BACKUP_SEND_CHAT_ID)
 export TOPIC_ID;  TOPIC_ID=$(_get BACKUP_SEND_TOPIC_ID)
+export NODE_NAME; NODE_NAME=$(_get NODE_NAME)
+[[ -z "$NODE_NAME" ]] && NODE_NAME=$(hostname -s 2>/dev/null || echo "server")
 [[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]] && exit 0
 export CERT_EXPIRY
 CERT_EXPIRY=$(openssl x509 -noout -enddate \
@@ -556,16 +563,18 @@ CERT_EXPIRY=$(openssl x509 -noout -enddate \
     | sed 's/notAfter=//' \
     | xargs -I{} date -d "{}" '+%d.%m.%Y' 2>/dev/null || echo "—")
 python3 - <<'PYEOF'
-import os, json, urllib.request, sys
-token   = os.environ["BOT_TOKEN"]
-chat    = os.environ["CHAT_ID"]
-topic   = os.environ.get("TOPIC_ID", "")
-lineage = os.environ.get("RENEWED_LINEAGE", "")
-domains = os.environ.get("RENEWED_DOMAINS", "").split()
-expiry  = os.environ.get("CERT_EXPIRY", "—")
+import os, json, sys, urllib.request
+token     = os.environ["BOT_TOKEN"]
+chat      = os.environ["CHAT_ID"]
+topic     = os.environ.get("TOPIC_ID", "")
+lineage   = os.environ.get("RENEWED_LINEAGE", "")
+domains   = os.environ.get("RENEWED_DOMAINS", "").split()
+expiry    = os.environ.get("CERT_EXPIRY", "—")
+node_name = os.environ.get("NODE_NAME", "server")
 domain_lines = "\n".join(f"• <code>{d}</code>" for d in domains)
 text = (
     "🔒 <b>TLS-сертификат обновлён</b>\n\n"
+    f"🖥 <b>Сервер:</b> <code>{node_name}</code>\n"
     f"🌐 <b>Домены:</b>\n{domain_lines}\n\n"
     f"📅 <b>Действует до:</b> <code>{expiry}</code>\n"
     f"📂 <b>Путь:</b> <code>{lineage}</code>\n\n"

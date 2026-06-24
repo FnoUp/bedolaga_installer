@@ -447,13 +447,23 @@ async def main() -> None:
 🗑 Удалено: 3 файла (старше 7 дней)
 ⏰ <i>00:00, 24.06.2026</i>""")
 
-    await snd_d(bot, 'TLS-сертификат обновлён (certbot hook)', BACKUP_CHAT, T_BACKUP,
+    await snd_d(bot, 'TLS: панель (certbot hook)', BACKUP_CHAT, T_BACKUP,
         '🔒 <b>TLS-сертификат обновлён</b>\n\n'
+        '🖥 <b>Сервер:</b> <code>Panel (London)</code>\n'
         '🌐 <b>Домены:</b>\n'
         '• <code>vpn.example.com</code>\n'
         '• <code>sub.vpn.example.com</code>\n\n'
         '📅 <b>Действует до:</b> <code>22.09.2026</code>\n'
         '📂 <b>Путь:</b> <code>/etc/letsencrypt/live/vpn.example.com</code>\n\n'
+        '<i>#tls #certbot #bedolaga</i>')
+
+    await snd_d(bot, 'TLS: нода France-01 (certbot hook)', BACKUP_CHAT, T_BACKUP,
+        '🔒 <b>TLS-сертификат обновлён</b>\n\n'
+        '🖥 <b>Сервер:</b> <code>France-01</code>\n'
+        '🌐 <b>Домены:</b>\n'
+        '• <code>fr.vpn.example.com</code>\n\n'
+        '📅 <b>Действует до:</b> <code>14.09.2026</code>\n'
+        '📂 <b>Путь:</b> <code>/etc/letsencrypt/live/fr.vpn.example.com</code>\n\n'
         '<i>#tls #certbot #bedolaga</i>')
 
     # ── ИТОГ ──────────────────────────────────────────────────────────────────
