@@ -473,6 +473,11 @@ cd "$INSTALL_DIR"
 docker compose build --pull
 
 log_step "ШАГ 10: Запуск Bedolaga"
+
+# Создаём директории которые монтируются в контейнер
+mkdir -p "$INSTALL_DIR"/{data/backups,logs,uploads}
+chmod -R 777 "$INSTALL_DIR"/{data,logs,uploads}
+
 docker compose up -d
 
 # ── ШАГ 11: Настройка вебхука в Remnawave ─────────────────────
