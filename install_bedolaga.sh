@@ -530,17 +530,84 @@ else
     RW_ENV_BACKUP=""
 fi
 
-# ── ШАГ 12: Проверка ──────────────────────────────────────────
-log_step "ШАГ 12: Проверка состояния"
+# ── ШАГ 12: TLS-уведомления через certbot hook ────────────────
+log_step "ШАГ 12: Установка TLS-уведомлений"
+
+CERTBOT_HOOK_DIR="/etc/letsencrypt/renewal-hooks/deploy"
+CERTBOT_HOOK_FILE="$CERTBOT_HOOK_DIR/bedolaga-tls-notify.sh"
+
+if command -v certbot &>/dev/null && [[ -d "/etc/letsencrypt" ]]; then
+    mkdir -p "$CERTBOT_HOOK_DIR"
+    cat > "$CERTBOT_HOOK_FILE" << 'HOOKEOF'
+#!/bin/bash
+# Certbot deploy hook — уведомление в Telegram (топик 13) после обновления TLS.
+# Certbot передаёт: $RENEWED_LINEAGE, $RENEWED_DOMAINS
+set -euo pipefail
+ENV_FILE="/opt/bedolaga/.env"
+[[ ! -f "$ENV_FILE" ]] && exit 0
+_get() { grep -m1 "^${1}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d "\"' " || true; }
+export BOT_TOKEN; BOT_TOKEN=$(_get BOT_TOKEN)
+export CHAT_ID;   CHAT_ID=$(_get BACKUP_SEND_CHAT_ID)
+export TOPIC_ID;  TOPIC_ID=$(_get BACKUP_SEND_TOPIC_ID)
+[[ -z "$BOT_TOKEN" || -z "$CHAT_ID" ]] && exit 0
+export CERT_EXPIRY
+CERT_EXPIRY=$(openssl x509 -noout -enddate \
+    -in "${RENEWED_LINEAGE}/cert.pem" 2>/dev/null \
+    | sed 's/notAfter=//' \
+    | xargs -I{} date -d "{}" '+%d.%m.%Y' 2>/dev/null || echo "—")
+python3 - <<'PYEOF'
+import os, json, urllib.request, sys
+token   = os.environ["BOT_TOKEN"]
+chat    = os.environ["CHAT_ID"]
+topic   = os.environ.get("TOPIC_ID", "")
+lineage = os.environ.get("RENEWED_LINEAGE", "")
+domains = os.environ.get("RENEWED_DOMAINS", "").split()
+expiry  = os.environ.get("CERT_EXPIRY", "—")
+domain_lines = "\n".join(f"• <code>{d}</code>" for d in domains)
+text = (
+    "🔒 <b>TLS-сертификат обновлён</b>\n\n"
+    f"🌐 <b>Домены:</b>\n{domain_lines}\n\n"
+    f"📅 <b>Действует до:</b> <code>{expiry}</code>\n"
+    f"📂 <b>Путь:</b> <code>{lineage}</code>\n\n"
+    "<i>#tls #certbot #bedolaga</i>"
+)
+payload = {"chat_id": chat, "text": text, "parse_mode": "HTML"}
+if topic:
+    try:
+        payload["message_thread_id"] = int(topic)
+    except ValueError:
+        pass
+req = urllib.request.Request(
+    f"https://api.telegram.org/bot{token}/sendMessage",
+    data=json.dumps(payload).encode(),
+    headers={"Content-Type": "application/json"},
+)
+try:
+    urllib.request.urlopen(req, timeout=10)
+except Exception as e:
+    print(f"TLS notify failed: {e}", file=sys.stderr)
+    sys.exit(0)
+PYEOF
+exit 0
+HOOKEOF
+    chmod +x "$CERTBOT_HOOK_FILE"
+    log_ok "TLS-хук → $CERTBOT_HOOK_FILE"
+    log_info "При каждом обновлении сертификата — уведомление в Telegram (топик 13)"
+else
+    log_warn "certbot не найден — TLS-уведомления не настроены"
+fi
+
+# ── ШАГ 13: Проверка ──────────────────────────────────────────
+log_step "ШАГ 13: Проверка состояния"
 
 echo -n "Жду старта бота"
-for i in {1..12}; do
+for i in {1..18}; do
     sleep 5; echo -n "."
     status=$(docker compose -f "$INSTALL_DIR/docker-compose.yml" \
         -f "$INSTALL_DIR/docker-compose.override.yml" \
         ps --format '{{.Service}} {{.State}}' 2>/dev/null | \
         grep '^bot' | awk '{print $2}' || true)
-    [[ "$status" == "running" ]] && break
+    [[ "$status" == "running" ]] && { echo ""; break; }
 done
 echo ""
 

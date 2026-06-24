@@ -3,17 +3,13 @@
 sim_topics.py — симуляция ВСЕХ внутренних уведомлений Bedolaga.
 Запуск: docker exec remnawave_bot python /tmp/sim_topics.py
 
-Маршрутизация (ваша конфигурация):
+Маршрутизация:
   Топик 2   → покупки, продления, триалы, баланс, докупки, промо, партнёры
-  Топик 4   → CRM-биллинг, сервис, ошибки, подозрительный трафик
-  Топик 441 → статусы ноды (создание/изменение/удаление/включение/отключение)
+  Топик 4   → CRM-биллинг, сервис, ошибки (+ дубль backup-ошибок)
+  Топик 441 → статусы ноды (создание/изменение/удаление/вкл/выкл)
   Топик 6   → трафик ноды, ежедневные/недельные отчёты
   Топик 11  → тикеты поддержки
-  Топик 13  → бекапы, ротация логов
-
-NOTE: Bedolaga объединяет node+CRM+service в категорию INFRASTRUCTURE.
-Разделение 441/4/6 для нод — через ADMIN_NOTIFICATIONS_INFRASTRUCTURE_TOPIC_ID=441
-плюс ручная маршрутизация в этом симуляторе.
+  Топик 13  → бекапы, ротация логов, обновление TLS
 """
 import asyncio
 import sys
@@ -32,42 +28,45 @@ skip   = lambda s: print(f'  {Y}⚠{N} {s}')
 fail   = lambda s: print(f'  {R}✗{N} {s}')
 banner = lambda s: print(f'\n{B}━━━ {s} ━━━{N}')
 
-NOW      = '24.06.2026 10:00'
-USER     = 'Test User'
-TG_ID    = str(settings.ADMIN_IDS[0]) if getattr(settings, 'ADMIN_IDS', None) else '467308835'
-USERNAME = 'fnoup'
-TAG      = '\n\n<i>#bedolaga</i>'  # метка источника
+NOW       = '24.06.2026 12:00'
+USER      = 'Алексей М.'
+TG_ID     = str(settings.ADMIN_IDS[0]) if getattr(settings, 'ADMIN_IDS', None) else '100000000'
+USERNAME  = 'user_example'
+TAG       = '\n\n<i>#bedolaga</i>'
 
 ADMIN_CHAT   = getattr(settings, 'ADMIN_NOTIFICATIONS_CHAT_ID', None)
-# Топики по вашей конфигурации
-T_GENERAL    = getattr(settings, 'ADMIN_NOTIFICATIONS_PURCHASES_TOPIC_ID', 2)
-T_INFRA      = getattr(settings, 'ADMIN_NOTIFICATIONS_INFRASTRUCTURE_TOPIC_ID', 4)
-T_NODE       = 441    # node created/modified/disabled/enabled/deleted
-T_TRAFFIC    = getattr(settings, 'ADMIN_REPORTS_TOPIC_ID', 6)   # node.traffic_notify
-T_REPORTS    = getattr(settings, 'ADMIN_REPORTS_TOPIC_ID', 6)   # ежедневные отчёты
-T_TICKETS    = getattr(settings, 'ADMIN_NOTIFICATIONS_TICKET_TOPIC_ID', 11)
-T_BACKUP     = getattr(settings, 'BACKUP_SEND_TOPIC_ID', 13)
 BACKUP_CHAT  = getattr(settings, 'BACKUP_SEND_CHAT_ID', ADMIN_CHAT)
 REPORTS_CHAT = getattr(settings, 'ADMIN_REPORTS_CHAT_ID', ADMIN_CHAT)
 
+# Топики по конфигурации (ADMIN_NOTIFICATIONS_*_TOPIC_ID из .env)
+T_GENERAL = getattr(settings, 'ADMIN_NOTIFICATIONS_PURCHASES_TOPIC_ID', 2)
+T_INFRA   = getattr(settings, 'ADMIN_NOTIFICATIONS_INFRASTRUCTURE_TOPIC_ID', 4)  # CRM/сервис/ошибки
+T_NODE    = 441    # node-статусы — хардкод (отдельного ключа в Bedolaga нет)
+T_TRAFFIC = getattr(settings, 'ADMIN_REPORTS_TOPIC_ID', 6)
+T_REPORTS = getattr(settings, 'ADMIN_REPORTS_TOPIC_ID', 6)
+T_TICKETS = getattr(settings, 'ADMIN_NOTIFICATIONS_TICKET_TOPIC_ID', 11)
+T_BACKUP  = getattr(settings, 'BACKUP_SEND_TOPIC_ID', 13)
+
 
 async def snd(svc: AdminNotificationService, label: str, cat: NotificationCategory, text: str) -> None:
+    """Отправляет через AdminNotificationService (категорийная маршрутизация из .env)."""
     try:
-        ok_ = await svc.send_admin_notification(text + TAG, category=cat)
-        (ok if ok_ else skip)(f'[{label}]')
+        result = await svc.send_admin_notification(text + TAG, category=cat)
+        (ok if result else skip)(f'[{label}]')
     except Exception as e:
         fail(f'[{label}] — {e}')
 
 
 async def snd_d(bot: Bot, label: str, chat, topic, text: str) -> None:
+    """Отправляет напрямую в конкретный chat+topic (обход категорийной маршрутизации)."""
     if not chat:
-        skip(f'[{label}] — chat_id не задан')
+        skip(f'[{label}] — CHAT_ID не задан в .env')
         return
     try:
-        kw = {'chat_id': chat, 'text': text + TAG, 'parse_mode': 'HTML'}
+        kwargs = {'chat_id': chat, 'text': text + TAG, 'parse_mode': 'HTML'}
         if topic:
-            kw['message_thread_id'] = int(topic)
-        await bot.send_message(**kw)
+            kwargs['message_thread_id'] = int(topic)
+        await bot.send_message(**kwargs)
         ok(f'[{label}]')
     except Exception as e:
         fail(f'[{label}] — {e}')
@@ -79,75 +78,134 @@ async def main() -> None:
 
     print(f'{B}Симуляция уведомлений Bedolaga — все топики{N}')
     print(f'{C}→{N} Чат: {ADMIN_CHAT}')
-    print(f'{C}→{N} Топики: 2=покупки | 4=CRM/сервис/ошибки | 441=ноды | 6=трафик/отчёты | 11=тикеты | 13=бекапы')
+    print(f'{C}→{N} 441=ноды | {T_INFRA}=CRM/сервис/ошибки | {T_TRAFFIC}=отчёты/трафик | {T_TICKETS}=тикеты | {T_BACKUP}=бекапы')
 
-    # ── ТОПИК 441: СТАТУСЫ НОДЫ ────────────────────────────────────────────────
-    banner('ТОПИК 441 — СТАТУСЫ НОДЫ (node created/modified/disabled/enabled/deleted)')
     NODE = ('France-01', 'fr1.vpn.example.com', '443')
 
+    # ── ТОПИК 441: СТАТУСЫ НОДЫ ────────────────────────────────────────────────
+    banner('ТОПИК 441 — СТАТУСЫ НОДЫ')
+
     await snd_d(bot, 'node.connection_lost', ADMIN_CHAT, T_NODE,
-        f'🚨 <b>Потеряно соединение с нодой</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>')
+        f'🚨 <b>Потеряно соединение с нодой</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'⏰ <i>{NOW}</i>')
+
     await snd_d(bot, 'node.connection_restored', ADMIN_CHAT, T_NODE,
-        f'✅ <b>Соединение с нодой восстановлено</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>')
+        f'✅ <b>Соединение с нодой восстановлено</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'Время простоя: <code>2 мин 14 сек</code>\n'
+        f'⏰ <i>{NOW}</i>')
+
     await snd_d(bot, 'node.created', ADMIN_CHAT, T_NODE,
-        f'🟢 <b>Нода создана</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>\nПорт: <code>{NODE[2]}</code>')
+        f'🟢 <b>Нода создана</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'Порт: <code>{NODE[2]}</code>\n'
+        f'⏰ <i>{NOW}</i>')
+
     await snd_d(bot, 'node.modified', ADMIN_CHAT, T_NODE,
-        f'🔧 <b>Нода изменена</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>\nПорт: <code>{NODE[2]}</code>')
+        f'🔧 <b>Нода изменена</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'Порт: <code>{NODE[2]}</code>\n'
+        f'⏰ <i>{NOW}</i>')
+
     await snd_d(bot, 'node.disabled', ADMIN_CHAT, T_NODE,
-        f'🔴 <b>Нода отключена</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>\nПорт: <code>{NODE[2]}</code>')
+        f'🔴 <b>Нода отключена</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'⏰ <i>{NOW}</i>')
+
     await snd_d(bot, 'node.enabled', ADMIN_CHAT, T_NODE,
-        f'🟢 <b>Нода включена</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>\nПорт: <code>{NODE[2]}</code>')
+        f'🟢 <b>Нода включена</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'⏰ <i>{NOW}</i>')
+
     await snd_d(bot, 'node.deleted', ADMIN_CHAT, T_NODE,
-        f'🗑️ <b>Нода удалена</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>\nПорт: <code>{NODE[2]}</code>')
+        f'🗑️ <b>Нода удалена</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n'
+        f'⏰ <i>{NOW}</i>')
 
     # ── ТОПИК 6: ТРАФИК НОДЫ ──────────────────────────────────────────────────
-    banner('ТОПИК 6 — ТРАФИК НОДЫ (node.traffic_notify)')
+    banner(f'ТОПИК {T_TRAFFIC} — ТРАФИК НОДЫ')
 
     await snd_d(bot, 'node.traffic_notify', ADMIN_CHAT, T_TRAFFIC,
-        f'📊 <b>Уведомление о трафике ноды</b>\nИмя: <code>{NODE[0]}</code>\nАдрес: <code>{NODE[1]}</code>\n\n'
-        f'📊 Использовано: <b>1.00 ТБ</b> / 10.00 ТБ\n'
-        f'📈 Загрузка: <b>10%</b>')
+        f'📊 <b>Уведомление о трафике ноды</b>\n'
+        f'Имя: <code>{NODE[0]}</code>\n'
+        f'Адрес: <code>{NODE[1]}</code>\n\n'
+        f'📈 Использовано: <b>1.00 ТБ</b> / 10.00 ТБ\n'
+        f'📉 Загрузка: <b>10%</b>\n'
+        f'⏰ <i>{NOW}</i>')
 
-    # ── ТОПИК 4: CRM / СЕРВИС / ОШИБКИ ────────────────────────────────────────
-    banner('ТОПИК 4 — СЕРВИС (service.*)')
+    # ── ТОПИК 4: СЕРВИС / CRM / ОШИБКИ ────────────────────────────────────────
+    banner(f'ТОПИК {T_INFRA} — СЕРВИС (service.*)')
 
     await snd(svc, 'service.panel_started', NotificationCategory.INFRASTRUCTURE,
-        '🚀 <b>Панель RemnaWave запущена</b>\nВерсия: <code>1.0.0</code>\nПричина: scheduled restart')
+        '🚀 <b>Панель RemnaWave запущена</b>\n'
+        'Версия: <code>2.1.0</code>\n'
+        'Причина: <code>scheduled restart</code>')
+
     await snd(svc, 'service.login_attempt_success', NotificationCategory.INFRASTRUCTURE,
-        '🔓 <b>Успешный вход в панель</b>\nПользователь: <code>admin</code>\nIP: <code>192.168.1.100</code>')
+        '🔓 <b>Успешный вход в панель</b>\n'
+        'IP: <code>85.208.72.14</code>\n'
+        'User-Agent: <code>Mozilla/5.0 (Windows NT 10.0; Win64)</code>')
+
     await snd(svc, 'service.login_attempt_failed', NotificationCategory.INFRASTRUCTURE,
-        '🔐 <b>Неудачная попытка входа в панель</b>\nIP: <code>192.168.1.200</code>\nUser-Agent: <code>curl/7.88</code>')
+        '🔐 <b>Неудачная попытка входа в панель</b>\n'
+        'IP: <code>185.220.101.47</code>\n'
+        'User-Agent: <code>curl/8.1.0</code>\n'
+        '⚠️ Проверьте, не брутфорс ли это')
+
     await snd(svc, 'service.subpage_config_changed', NotificationCategory.INFRASTRUCTURE,
-        '📄 <b>Конфиг страницы подписки изменён</b>')
+        '📄 <b>Конфиг страницы подписки изменён</b>\n'
+        'Изменения вступят в силу при следующем обращении')
 
-    banner('ТОПИК 4 — CRM БИЛЛИНГ (crm.*)')
+    banner(f'ТОПИК {T_INFRA} — CRM БИЛЛИНГ (crm.*)')
 
-    for title in [
-        '💳 Оплата ноды через 7 дней',
-        '💳 Оплата ноды через 48 часов',
-        '⚠️ Оплата ноды через 24 часа',
-        '🔴 Оплата ноды сегодня',
-        '❗ Просрочка оплаты ноды: 24 часа',
-        '❗ Просрочка оплаты ноды: 48 часов',
-        '🚨 Просрочка оплаты ноды: 7 дней',
-    ]:
-        await snd(svc, title, NotificationCategory.INFRASTRUCTURE,
-            f'{title}\nНода: <code>{NODE[0]}</code>\nСумма: <code>1500 RUB</code>')
+    crm_events = [
+        ('crm.payment_in_7_days',      '💳', 'Оплата ноды через 7 дней'),
+        ('crm.payment_in_48hrs',        '💳', 'Оплата ноды через 48 часов'),
+        ('crm.payment_in_24hrs',        '⚠️', 'Оплата ноды через 24 часа'),
+        ('crm.payment_due_today',       '🔴', 'Оплата ноды сегодня'),
+        ('crm.payment_overdue_24hrs',   '❗', 'Просрочка оплаты: 24 часа'),
+        ('crm.payment_overdue_48hrs',   '❗', 'Просрочка оплаты: 48 часов'),
+        ('crm.payment_overdue_7_days',  '🚨', 'Просрочка оплаты: 7 дней'),
+    ]
+    for label, icon, title in crm_events:
+        await snd(svc, label, NotificationCategory.INFRASTRUCTURE,
+            f'{icon} <b>{title}</b>\n'
+            f'Нода: <code>{NODE[0]}</code> ({NODE[1]})\n'
+            f'Сумма: <b>1 500 ₽</b>')
 
-    banner('ТОПИК 4 — ОШИБКИ И СИСТЕМА (errors.*)')
+    banner(f'ТОПИК {T_INFRA} — ОШИБКИ И СИСТЕМА')
 
     await snd(svc, 'errors.bandwidth_max_notifications', NotificationCategory.ERRORS,
-        '⚠️ <b>Достигнут лимит уведомлений о трафике</b>\nПользователей с лимитом: <code>5</code>')
-    await snd(svc, 'Обновление версии бота', NotificationCategory.INFRASTRUCTURE,
-        f'🔄 <b>Доступна новая версия бота</b>\n\nТекущая: <code>3.61.0</code>\nНовая: <code>3.62.0</code>\n\n'
-        f'Обновите командой: <code>bedolaga</code>')
+        '⚠️ <b>Лимит уведомлений о трафике</b>\n'
+        'Пользователей в очереди: <code>5</code>\n'
+        'Следующие уведомления заблокированы до сброса')
+
+    await snd(svc, 'Доступна новая версия бота', NotificationCategory.INFRASTRUCTURE,
+        '🔄 <b>Доступна новая версия Bedolaga</b>\n\n'
+        'Текущая: <code>3.61.0</code>\n'
+        'Новая: <code>3.62.0</code>\n\n'
+        'Обновите командой:\n<code>bedolaga</code>')
+
     await snd(svc, 'Ошибка проверки версии', NotificationCategory.ERRORS,
-        '⚠️ <b>Ошибка проверки обновлений</b>\n\nНе удалось подключиться к GitHub API.\nТекущая версия: <code>3.61.0</code>')
-    await snd(svc, 'Техническое обслуживание включено', NotificationCategory.INFRASTRUCTURE,
-        '🔧 <b>Режим обслуживания ВКЛЮЧЁН</b>\n\nПричина: автоотключение при ошибках\nВремя: <code>24.06.2026 10:00</code>')
+        '⚠️ <b>Ошибка проверки обновлений</b>\n'
+        'Не удалось подключиться к GitHub API.\n'
+        'Текущая версия: <code>3.61.0</code>')
+
+    await snd(svc, 'Режим обслуживания включён', NotificationCategory.INFRASTRUCTURE,
+        '🔧 <b>Режим обслуживания ВКЛЮЧЁН</b>\n\n'
+        'Причина: автоотключение при ошибках\n'
+        f'Время: <code>{NOW}</code>')
 
     # ── ТОПИК 2: ПОКУПКИ ──────────────────────────────────────────────────────
-    banner('ТОПИК 2 — ПОКУПКИ (PURCHASES)')
+    banner(f'ТОПИК {T_GENERAL} — ПОКУПКИ (PURCHASES)')
 
     await snd(svc, 'Покупка подписки', NotificationCategory.PURCHASES, f"""🛒 <b>НОВАЯ ПОКУПКА</b>
 
@@ -159,27 +217,26 @@ async def main() -> None:
 📦 <b>Тариф:</b> Стандартный
 📅 <b>Период:</b> 30 дней
 💰 <b>Сумма:</b> 990₽
-💳 <b>Способ:</b> YooKassa
-🔑 <b>ID платежа:</b> <code>pay_001</code>
+💳 <b>Способ оплаты:</b> YooKassa
+🔑 <b>ID платежа:</b> <code>2e7a2db5-0004-5000-a000-1b68b2a44e55</code>
 
 📆 <b>Действует до:</b> 24.07.2026
 🌐 <b>Сервер:</b> {NODE[0]}
-
 ⏰ <i>{NOW}</i>""")
 
     await snd(svc, 'Покупка с лендинга', NotificationCategory.PURCHASES, f"""🛒 <b>ПОКУПКА С ЛЕНДИНГА</b>
 
 🌐 Страница: <b>/buy/standard</b>
-📧 Покупатель: <code>test@example.com</code>
+📧 Покупатель: <code>user@example.com</code>
 
 <blockquote>🏷️ Тариф: <b>Стандартный</b>
-📅 Период: 30 дн.
+📅 Период: 30 дней
 💵 <b>990₽</b> • YooKassa
-🆔 pay_002</blockquote>
+🔑 2e7a2db5-0005-5000-a000-1b68b2a44e66</blockquote>
 
-<i>{NOW}</i>""")
+⏰ <i>{NOW}</i>""")
 
-    banner('ТОПИК 2 — ПРОДЛЕНИЯ (RENEWALS)')
+    banner(f'ТОПИК {T_GENERAL} — ПРОДЛЕНИЯ (RENEWALS)')
 
     await snd(svc, 'Продление подписки', NotificationCategory.RENEWALS, f"""🔄 <b>ПРОДЛЕНИЕ ПОДПИСКИ</b>
 
@@ -199,14 +256,14 @@ async def main() -> None:
 
 👤 <b>Пользователь:</b> {USER} (@{USERNAME})
 
-📦 <b>Тариф:</b> Стандартный / 30 дн.
+📦 <b>Тариф:</b> Стандартный / 30 дней
 💰 <b>Списано с баланса:</b> 990₽
-🏦 <b>Остаток:</b> 0₽
+🏦 <b>Остаток баланса:</b> 10₽
 
 📆 <b>Новая дата окончания:</b> 24.07.2026
 ⏰ <i>{NOW}</i>""")
 
-    banner('ТОПИК 2 — ТРИАЛЫ (TRIALS)')
+    banner(f'ТОПИК {T_GENERAL} — ТРИАЛЫ (TRIALS)')
 
     await snd(svc, 'Активация триала', NotificationCategory.TRIALS, f"""🎯 <b>АКТИВАЦИЯ ТРИАЛА</b>
 
@@ -216,16 +273,16 @@ async def main() -> None:
 👥 <b>Статус:</b> 🆕 Новый
 🏷️ <b>Промогруппа:</b> —
 
-⏰ <b>Параметры:</b>
-📅 Период: 3 дней
+⚙️ <b>Параметры триала:</b>
+📅 Период: 3 дня
 📊 Трафик: 5.00 ГБ
 📱 Устройства: 1
 🌐 Сервер: {NODE[0]}
 
-📆 <b>Действует до:</b> 27.06.2026 10:00
+📆 <b>Действует до:</b> 27.06.2026 12:00
 ⏰ <i>{NOW}</i>""")
 
-    banner('ТОПИК 2 — БАЛАНС (BALANCE)')
+    banner(f'ТОПИК {T_GENERAL} — БАЛАНС (BALANCE)')
 
     await snd(svc, 'Пополнение баланса', NotificationCategory.BALANCE, f"""💰 <b>ПОПОЛНЕНИЕ БАЛАНСА</b>
 
@@ -234,163 +291,179 @@ async def main() -> None:
 📱 <b>Username:</b> @{USERNAME}
 
 💳 <b>Способ:</b> YooKassa
-💰 <b>Сумма:</b> 990₽
-🏦 <b>Новый баланс:</b> 990₽
-🔑 <b>ID:</b> <code>pay_003</code>
+💰 <b>Сумма пополнения:</b> 1 000₽
+🏦 <b>Новый баланс:</b> 1 010₽
+🔑 <b>ID транзакции:</b> <code>2e7a2db5-0006-5000-a000-1b68b2a44e77</code>
 ⏰ <i>{NOW}</i>""")
 
-    banner('ТОПИК 2 — ДОПОЛНЕНИЯ (ADDONS)')
+    banner(f'ТОПИК {T_GENERAL} — ДОПОЛНЕНИЯ (ADDONS)')
 
     await snd(svc, 'Докупка трафика', NotificationCategory.ADDONS, f"""📦 <b>ДОКУПКА ТРАФИКА</b>
 
 👤 <b>Пользователь:</b> {USER} (@{USERNAME})
 
-📊 <b>Добавлено:</b> 50 ГБ
+📊 <b>Добавлено трафика:</b> +50 ГБ
 💰 <b>Сумма:</b> 300₽
 📊 <b>Новый лимит:</b> 150 ГБ
 ⏰ <i>{NOW}</i>""")
 
-    banner('ТОПИК 2 — ПРОМО (PROMO)')
+    banner(f'ТОПИК {T_GENERAL} — ПРОМО (PROMO)')
 
     await snd(svc, 'Промокод применён', NotificationCategory.PROMO, f"""🎟 <b>ПРОМОКОД ПРИМЕНЁН</b>
 
 👤 <b>Пользователь:</b> {USER} (@{USERNAME})
 
-🎟 <b>Промокод:</b> <code>TESTPROMO</code>
-💎 <b>Тип:</b> Скидка 20%
-📦 <b>Тариф:</b> Стандартный
+🎟 <b>Промокод:</b> <code>SUMMER2026</code>
+💎 <b>Тип скидки:</b> 20% на первую оплату
+📦 <b>Тариф:</b> Стандартный / 30 дней
+💰 <b>Итоговая сумма:</b> 792₽ (было 990₽)
 ⏰ <i>{NOW}</i>""")
 
-    await snd(svc, 'Переход по кампании', NotificationCategory.PROMO, f"""🔗 <b>ПЕРЕХОД ПО КАМПАНИИ</b>
+    await snd(svc, 'Переход по кампании', NotificationCategory.PROMO, f"""🔗 <b>ПЕРЕХОД ПО UTM-КАМПАНИИ</b>
 
 👤 <b>Пользователь:</b> {USER} (@{USERNAME})
-🌐 <b>Кампания:</b> summer2026 / <b>Переходов:</b> 42
+🌐 <b>Кампания:</b> <code>summer2026</code>
+📊 <b>Всего переходов по кампании:</b> 42
 ⏰ <i>{NOW}</i>""")
 
     await snd(svc, 'Регистрация по кампании', NotificationCategory.PROMO, f"""🎉 <b>РЕГИСТРАЦИЯ ПО КАМПАНИИ</b>
 
-👤 <b>Новый:</b> {USER} (@{USERNAME})
-🌐 <b>Кампания:</b> summer2026
+👤 <b>Новый пользователь:</b> {USER} (@{USERNAME})
+🌐 <b>Кампания:</b> <code>summer2026</code>
 🔗 <b>Реферер:</b> @partner_user
 ⏰ <i>{NOW}</i>""")
 
-    banner('ТОПИК 2 — ПАРТНЁРЫ (PARTNERS)')
+    banner(f'ТОПИК {T_GENERAL} — ПАРТНЁРЫ (PARTNERS)')
 
     await snd(svc, 'Партнёрская заявка', NotificationCategory.PARTNERS, f"""🤝 <b>НОВАЯ ПАРТНЁРСКАЯ ЗАЯВКА</b>
 
 👤 <b>Пользователь:</b> {USER} (@{USERNAME})
+🆔 <b>Telegram ID:</b> <code>{TG_ID}</code>
 📧 <b>Email:</b> partner@example.com
+🏦 <b>Реквизиты для вывода:</b> указаны
 ⏰ <i>{NOW}</i>""")
 
     await snd(svc, 'Запрос на вывод', NotificationCategory.PARTNERS, f"""💸 <b>ЗАПРОС НА ВЫВОД СРЕДСТВ</b>
 
 👤 <b>Партнёр:</b> {USER} (@{USERNAME})
-💰 <b>Сумма:</b> 5 000₽
-💳 <b>Реквизиты:</b> 4111 **** **** 1111
-📝 <b>Заявка #1</b>
+💰 <b>Сумма запроса:</b> 5 000₽
+💳 <b>Реквизиты:</b> СБП / Тинькофф
+📝 <b>Заявка #7</b>
 ⏰ <i>{NOW}</i>""")
 
-    # ── ТОПИК 6: ЕЖЕДНЕВНЫЕ ОТЧЁТЫ ────────────────────────────────────────────
-    banner('ТОПИК 6 — ЕЖЕДНЕВНЫЕ / НЕДЕЛЬНЫЕ ОТЧЁТЫ (ADMIN_REPORTS)')
+    # ── ТОПИК 6: ОТЧЁТЫ ───────────────────────────────────────────────────────
+    banner(f'ТОПИК {T_REPORTS} — ЕЖЕДНЕВНЫЕ / НЕДЕЛЬНЫЕ ОТЧЁТЫ')
 
-    await snd_d(bot, 'Ежедневный отчёт', REPORTS_CHAT, T_REPORTS, f"""📊 <b>Отчет за вчера, 23.06.2026</b>
+    await snd_d(bot, 'Ежедневный отчёт', REPORTS_CHAT, T_REPORTS, f"""📊 <b>Отчёт за вчера, 23.06.2026</b>
 
-🧭 <b>Итог по периоду</b>
-• Новых пользователей: <b>3</b>
-• Новых триалов: <b>2</b>
-• Конверсий триал → платная: <b>1</b> (<i>50.0%</i>)
-• Новых платных: <b>1</b>
-• Поступления (пополнения): <b>990₽</b>
+🧭 <b>Итог дня</b>
+• Новых пользователей: <b>5</b>
+• Новых триалов: <b>3</b>
+• Конверсий триал → платная: <b>2</b> (<i>66.7%</i>)
+• Новых платных: <b>3</b>
+• Поступления: <b>2 970₽</b>
 
-💎 <b>Подписки</b>
-• Активные триалы: 1
-• Активные платные: 1
+💎 <b>Активные подписки</b>
+• Триалы: 4
+• Платные: 12
 
-💰 <b>Финансы</b>
-• Оплаты: 1 на сумму 990₽
-• Пополнения: 0 на сумму 0₽
+💰 <b>Финансы дня</b>
+• Оплат: 3 на сумму 2 970₽
+• Пополнений баланса: 1 на сумму 1 000₽
 
-👥 <b>Пользователи</b>
-• Всего в базе: 4 / Активных: 2 / Без подписки: 2""")
+👥 <b>База пользователей</b>
+• Всего: 48 / Активных: 16 / Без подписки: 32""")
 
-    await snd_d(bot, 'Недельный отчёт', REPORTS_CHAT, T_REPORTS, f"""📊 <b>Отчет за период 17.06 – 23.06.2026</b>
+    await snd_d(bot, 'Недельный отчёт', REPORTS_CHAT, T_REPORTS, f"""📊 <b>Отчёт за период 17.06 – 23.06.2026</b>
 
-🧭 <b>Итог</b>
-• Новых пользователей: <b>12</b>
-• Триалов: <b>8</b> / Конверсий: <b>4</b> (<i>50%</i>)
-• Платных: <b>6</b>
-• Поступления: <b>5 940₽</b>
+🧭 <b>Итог недели</b>
+• Новых пользователей: <b>28</b>
+• Триалов: <b>19</b> / Конверсий: <b>9</b> (<i>47.4%</i>)
+• Новых платных: <b>15</b>
+• Поступления: <b>18 810₽</b>
 
-💰 Оплаты: 6 × 990₽ = 5 940₽""")
+💰 Оплат: 15 × 990₽ + 3 × 1 980₽ = 20 730₽
+🔄 Автопродлений: 3 × 990₽ = 2 970₽""")
 
     # ── ТОПИК 11: ТИКЕТЫ ──────────────────────────────────────────────────────
-    banner('ТОПИК 11 — ТИКЕТЫ (TICKETS)')
+    banner(f'ТОПИК {T_TICKETS} — ТИКЕТЫ (TICKETS)')
 
-    await snd(svc, 'Новый тикет #1', NotificationCategory.TICKETS, f"""🎫 <b>НОВЫЙ ТИКЕТ #1</b>
+    await snd(svc, 'Новый тикет #42', NotificationCategory.TICKETS, f"""🎫 <b>НОВЫЙ ТИКЕТ #42</b>
 
 👤 <b>Пользователь:</b> {USER}
 🆔 <b>Telegram ID:</b> <code>{TG_ID}</code>
 📱 <b>Username:</b> @{USERNAME}
 
-💬 <i>Не работает подключение на iPhone 15. Пробовал переустановить профиль — не помогает.</i>
-⏰ <i>{NOW}</i>""")
+💬 <i>Не работает подключение на iPhone 15 Pro. Пробовал переустановить профиль — не помогает. Последний раз работало вчера.</i>
 
-    await snd(svc, 'Ответ пользователя в тикете', NotificationCategory.TICKETS, f"""💬 <b>ОТВЕТ В ТИКЕТЕ #1</b>
+⏰ Открыт: <i>{NOW}</i>""")
 
-👤 {USER} (@{USERNAME})
-<i>Спасибо, всё заработало!</i>
-⏰ <i>{NOW}</i>""")
-
-    await snd(svc, 'SLA нарушен (60 мин без ответа)', NotificationCategory.TICKETS, f"""⏰ <b>SLA НАРУШЕН — ТИКЕТ #1</b>
+    await snd(svc, 'Ответ пользователя в тикете', NotificationCategory.TICKETS, f"""💬 <b>ОТВЕТ В ТИКЕТЕ #42</b>
 
 👤 {USER} (@{USERNAME})
-⏱ <b>Без ответа:</b> 60 минут
-💬 <i>Не работает подключение на iPhone 15.</i>
-⚠️ Тикет требует немедленного внимания!
+<i>Спасибо, помогло! После сброса настроек и нового импорта всё заработало.</i>
 ⏰ <i>{NOW}</i>""")
 
-    # ── ТОПИК 13: БЕКАПЫ И ЛОГИ ───────────────────────────────────────────────
-    banner('ТОПИК 13 — БЕКАПЫ (BACKUP) + РОТАЦИЯ ЛОГОВ')
+    await snd(svc, 'SLA нарушен (60 мин без ответа)', NotificationCategory.TICKETS, f"""⏰ <b>SLA НАРУШЕН — ТИКЕТ #42</b>
+
+👤 {USER} (@{USERNAME})
+⏱ <b>Ожидает ответа:</b> 60 минут
+💬 <i>Не работает подключение на iPhone 15 Pro.</i>
+⚠️ Требует немедленного ответа!""")
+
+    # ── ТОПИК 13: БЕКАПЫ, ЛОГИ, TLS ──────────────────────────────────────────
+    banner(f'ТОПИК {T_BACKUP} — БЕКАПЫ (BACKUP)')
 
     await snd_d(bot, 'Бекап создан', BACKUP_CHAT, T_BACKUP, f"""💾 <b>БЕКАП СОЗДАН</b>
 
 ✅ База данных сохранена
 📁 <code>backup_2026-06-24_01-00.tar.gz</code>
-📊 Размер: 2.4 МБ | Сжатие: вкл | Логи: вкл
-🗂 Всего: 7 бекапов
-⏰ <i>{NOW}</i>""")
+📊 Размер: 2.4 МБ
+⚙️ Сжатие: вкл | Логи: вкл
+🗂 Хранится копий: 7 / 7
+⏰ <i>01:00, 24.06.2026</i>""")
 
-    await snd_d(bot, 'Ошибка бекапа', BACKUP_CHAT, T_BACKUP, f"""❌ <b>ОШИБКА БЕКАПА</b>
-
-⚠️ Не удалось создать резервную копию
-🔍 <b>Причина:</b> <code>No space left on device</code>
-📂 /app/data/backups
-🔧 Проверь свободное место!
-⏰ <i>{NOW}</i>""")
-
-    # Ошибка бекапа дублируется в топик 4 (ERRORS)
-    await snd(svc, 'Ошибка бекапа (дубль → топик 4)', NotificationCategory.ERRORS, f"""❌ <b>ОШИБКА БЕКАПА</b>
+    await snd_d(bot, 'Ошибка бекапа (→ топик 13)', BACKUP_CHAT, T_BACKUP, f"""❌ <b>ОШИБКА БЕКАПА</b>
 
 ⚠️ Не удалось создать резервную копию
 🔍 <b>Причина:</b> <code>No space left on device</code>
-📂 /app/data/backups
+📂 Путь: <code>/app/data/backups</code>
+🔧 <b>Действие:</b> Проверьте свободное место на диске
 ⏰ <i>{NOW}</i>""")
+
+    # Ошибка бекапа дублируется в ERRORS (→ топик 4)
+    await snd(svc, 'Ошибка бекапа (дубль → топик 4)', NotificationCategory.ERRORS,
+        f'❌ <b>ОШИБКА БЕКАПА</b>\n\n'
+        f'Не удалось создать резервную копию\n'
+        f'Причина: <code>No space left on device</code>\n'
+        f'📂 <code>/app/data/backups</code>\n'
+        f'⏰ <i>{NOW}</i>')
 
     await snd_d(bot, 'Ротация логов', BACKUP_CHAT, T_BACKUP, f"""📋 <b>РОТАЦИЯ ЛОГОВ</b>
 
-✅ Логи обработаны
+✅ Архивирование выполнено
 📁 <code>logs_2026-06-24_00-00.tar.gz</code>
-📊 Архив: 1.1 МБ | Удалено: 3 файла (старше 7 дней)
-⏰ <i>{NOW}</i>""")
+📊 Архив: 1.1 МБ
+🗑 Удалено: 3 файла (старше 7 дней)
+⏰ <i>00:00, 24.06.2026</i>""")
 
-    # ── ИТОГ ─────────────────────────────────────────────────────────────────
-    print(f'\n{G}{B}Готово!{N}')
-    print(f'  Топик 441  → ноды (создание/изменение/удаление/вкл/выкл/разрыв)')
-    print(f'  Топик 6    → трафик ноды + ежедневные/недельные отчёты')
-    print(f'  Топик 4    → CRM-биллинг, сервис, ошибки (+ дубль backup-ошибок)')
-    print(f'  Топик 2    → покупки, продления, триалы, баланс, промо, партнёры')
-    print(f'  Топик 11   → тикеты поддержки')
-    print(f'  Топик 13   → бекапы + ротация логов')
+    await snd_d(bot, 'TLS-сертификат обновлён (certbot hook)', BACKUP_CHAT, T_BACKUP,
+        '🔒 <b>TLS-сертификат обновлён</b>\n\n'
+        '🌐 <b>Домены:</b>\n'
+        '• <code>vpn.example.com</code>\n'
+        '• <code>sub.vpn.example.com</code>\n\n'
+        '📅 <b>Действует до:</b> <code>22.09.2026</code>\n'
+        '📂 <b>Путь:</b> <code>/etc/letsencrypt/live/vpn.example.com</code>\n\n'
+        '<i>#tls #certbot #bedolaga</i>')
+
+    # ── ИТОГ ──────────────────────────────────────────────────────────────────
+    print(f'\n{G}{B}Готово! Все уведомления отправлены.{N}')
+    print(f'  Топик 441   → ноды (создание/изменение/удаление/вкл/выкл/разрыв)')
+    print(f'  Топик 6     → трафик ноды + ежедневные/недельные отчёты')
+    print(f'  Топик 4     → CRM-биллинг, сервис, ошибки (+ дубль backup-ошибок)')
+    print(f'  Топик 2     → покупки, продления, триалы, баланс, промо, партнёры')
+    print(f'  Топик 11    → тикеты поддержки')
+    print(f'  Топик 13    → бекапы + ротация логов + обновление TLS')
     print(f'  {C}Все помечены #bedolaga{N}')
 
     await bot.session.close()

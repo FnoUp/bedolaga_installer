@@ -132,7 +132,7 @@ run_user_events() {
     local ud
     ud=$(USER_DATA)
 
-    echo -e "\n${YELLOW}⚠  Пользовательские события работают только если @fnoup завершил /start в боте!${NC}"
+    echo -e "\n${YELLOW}⚠  Пользовательские события работают только если TG ID ${TELEGRAM_ID} завершил /start в боте!${NC}"
 
     banner "ПОДПИСКА: статусы"
     send_event "user.expired"   "$ud"
@@ -232,6 +232,18 @@ case "$MODE" in
         fi
         banner "ОДИНОЧНОЕ СОБЫТИЕ: $EVENT_FILTER"
         send_event "$EVENT_FILTER" "$(USER_DATA)"
+        ;;
+    --tls-test)
+        banner "ТЕСТ TLS-ХУКА (certbot deploy hook)"
+        HOOK="/etc/letsencrypt/renewal-hooks/deploy/bedolaga-tls-notify.sh"
+        if [[ ! -f "$HOOK" ]]; then
+            log_err "Хук не установлен: $HOOK"
+            log_info "Установите: bash /opt/bedolaga/install_bedolaga.sh"
+            exit 1
+        fi
+        RENEWED_LINEAGE="/etc/letsencrypt/live/vpn.example.com" \
+        RENEWED_DOMAINS="vpn.example.com sub.vpn.example.com" \
+        bash "$HOOK" && log_ok "TLS-уведомление отправлено в топик 13" || log_err "Ошибка отправки"
         ;;
     --all|*)
         banner "ВСЕ УВЕДОМЛЕНИЯ"
