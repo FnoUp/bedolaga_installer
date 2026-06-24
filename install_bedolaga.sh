@@ -197,11 +197,18 @@ ask NOTIF_CHAT_ID "* ID группы (например: -1001234567890)"
 
 echo ""
 echo -e "  Топики (Enter = дефолт):"
-ask TOPIC_GENERAL "  Общий — покупки/продления/триалы/баланс" "2"
-ask TOPIC_INFRA   "  Инфраструктура — ошибки/серверы"         "4"
-ask TOPIC_REPORTS "  Отчёты — ежедневная статистика"           "6"
-ask TOPIC_TICKETS "  Тикеты — поддержка пользователей"         "11"
-ask TOPIC_BACKUP  "  Бэкапы и логи"                            "13"
+echo -e "  ${YELLOW}Примечание:${NC} TOPIC_NODE используется для всех событий инфраструктуры"
+echo -e "  (ноды + CRM-биллинг + сервис — Bedolaga не разделяет их по отдельным топикам)"
+ask TOPIC_GENERAL "  Топик 2  — покупки/продления/триалы/баланс/промо" "2"
+ask TOPIC_NODE    "  Топик 441 — ноды/CRM-биллинг/сервис/ошибки"       "441"
+ask TOPIC_REPORTS "  Топик 6  — ежедневные отчёты о продажах"           "6"
+ask TOPIC_TICKETS "  Топик 11 — тикеты поддержки"                       "11"
+ask TOPIC_BACKUP  "  Топик 13 — бэкапы и ротация логов"                 "13"
+
+echo ""
+echo -e "${BOLD}Название сервиса (отображается пользователям):${NC}"
+ask MINIAPP_NAME_RU "  Название (рус., например: TorchVPN)" "TorchVPN"
+ask MINIAPP_NAME_EN "  Название (eng., например: TorchVPN)" "TorchVPN"
 
 # ── ШАГ 5: Генерация секретов ─────────────────────────────────
 log_step "ШАГ 5: Генерация секретов"
@@ -209,6 +216,7 @@ log_step "ШАГ 5: Генерация секретов"
 POSTGRES_PASSWORD=$(openssl rand -hex 24)
 REMNAWAVE_WEBHOOK_SECRET=$(openssl rand -hex 32)
 CABINET_JWT_SECRET=$(openssl rand -hex 32)
+WEB_API_DEFAULT_TOKEN=$(openssl rand -hex 32)
 DATABASE_URL="postgresql+asyncpg://remnawave_user:${POSTGRES_PASSWORD}@postgres:5432/remnawave_bot"
 
 log_ok "Секреты сгенерированы"
@@ -267,9 +275,13 @@ REMNAWAVE_WEBHOOK_PATH=/remnawave-webhook
 REMNAWAVE_WEBHOOK_SECRET=${REMNAWAVE_WEBHOOK_SECRET}
 REMNAWAVE_WEBHOOK_NOTIFY_NODE_CONNECTION_STATUS=true
 
+# Уведомления пользователю (личка)
 WEBHOOK_NOTIFY_USER_ENABLED=true
 WEBHOOK_NOTIFY_SUB_STATUS=true
+# Подписка истекла → личка пользователя. Отключить = false
 WEBHOOK_NOTIFY_SUB_EXPIRED=true
+# "Подписка истекла 24ч назад" → личка. Чтобы отключить ТОЛЬКО для триала —
+# отдельной настройки нет. Чтобы убрать для всех: WEBHOOK_NOTIFY_SUB_EXPIRED=false
 WEBHOOK_NOTIFY_SUB_EXPIRING=true
 WEBHOOK_NOTIFY_SUB_LIMITED=true
 WEBHOOK_NOTIFY_TRAFFIC_RESET=true
@@ -279,6 +291,7 @@ WEBHOOK_NOTIFY_FIRST_CONNECTED=true
 WEBHOOK_NOTIFY_NOT_CONNECTED=true
 WEBHOOK_NOTIFY_BANDWIDTH_THRESHOLD=true
 WEBHOOK_NOTIFY_DEVICES=true
+WEBHOOK_NOTIFY_TORRENT_DETECTED=true
 
 # ── Уведомления администраторам ───────────────────────────────
 ADMIN_NOTIFICATIONS_ENABLED=true
@@ -290,10 +303,11 @@ ADMIN_NOTIFICATIONS_TRIALS_TOPIC_ID=${TOPIC_GENERAL}
 ADMIN_NOTIFICATIONS_BALANCE_TOPIC_ID=${TOPIC_GENERAL}
 ADMIN_NOTIFICATIONS_ADDONS_TOPIC_ID=${TOPIC_GENERAL}
 ADMIN_NOTIFICATIONS_PROMO_TOPIC_ID=${TOPIC_GENERAL}
-ADMIN_NOTIFICATIONS_INFRASTRUCTURE_TOPIC_ID=${TOPIC_INFRA}
-ADMIN_NOTIFICATIONS_ERRORS_TOPIC_ID=${TOPIC_INFRA}
+ADMIN_NOTIFICATIONS_INFRASTRUCTURE_TOPIC_ID=${TOPIC_NODE}
+ADMIN_NOTIFICATIONS_ERRORS_TOPIC_ID=${TOPIC_NODE}
 ADMIN_NOTIFICATIONS_TICKET_TOPIC_ID=${TOPIC_TICKETS}
-SUSPICIOUS_NOTIFICATIONS_TOPIC_ID=${TOPIC_INFRA}
+SUSPICIOUS_NOTIFICATIONS_TOPIC_ID=${TOPIC_NODE}
+ADMIN_NOTIFICATIONS_PARTNERS_TOPIC_ID=${TOPIC_GENERAL}
 
 ADMIN_REPORTS_ENABLED=true
 ADMIN_REPORTS_CHAT_ID=${NOTIF_CHAT_ID}
@@ -353,8 +367,8 @@ MAX_DEVICES_LIMIT=15
 DEFAULT_TRAFFIC_LIMIT_GB=100
 DEFAULT_TRAFFIC_RESET_STRATEGY=MONTH
 RESET_TRAFFIC_ON_PAYMENT=false
-AVAILABLE_SUBSCRIPTION_PERIODS=30,90,180
-AVAILABLE_RENEWAL_PERIODS=30,90,180
+AVAILABLE_SUBSCRIPTION_PERIODS=14,30,60,90,180,360
+AVAILABLE_RENEWAL_PERIODS=14,30,60,90,180,360
 TRAFFIC_TOPUP_ENABLED=true
 BUY_TRAFFIC_BUTTON_VISIBLE=true
 TRAFFIC_RESET_PRICE_MODE=traffic_with_purchased
@@ -399,12 +413,17 @@ CABINET_JWT_SECRET=${CABINET_JWT_SECRET}
 CABINET_ACCESS_TOKEN_EXPIRE_MINUTES=15
 CABINET_REFRESH_TOKEN_EXPIRE_DAYS=7
 
+# ── Название сервиса (показывается пользователям) ─────────────
+MINIAPP_SERVICE_NAME_RU=${MINIAPP_NAME_RU}
+MINIAPP_SERVICE_NAME_EN=${MINIAPP_NAME_EN}
+
 # ── Web API ───────────────────────────────────────────────────
 WEB_API_ENABLED=true
 WEB_API_HOST=0.0.0.0
 WEB_API_PORT=8080
 WEB_API_WORKERS=1
 WEB_API_DOCS_ENABLED=false
+WEB_API_DEFAULT_TOKEN=${WEB_API_DEFAULT_TOKEN}
 
 # ── Мониторинг трафика (выключен) ─────────────────────────────
 TRAFFIC_FAST_CHECK_ENABLED=false
