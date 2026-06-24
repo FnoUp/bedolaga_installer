@@ -5,6 +5,7 @@
 # Репо: https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot
 # ==============================================================
 set -euo pipefail
+cd /  # фиксируем CWD до любых операций с директориями
 
 INSTALL_DIR="/opt/bedolaga"
 REPO_URL="https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot.git"
