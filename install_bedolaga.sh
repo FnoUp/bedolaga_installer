@@ -312,7 +312,7 @@ ADMIN_NOTIFICATIONS_PARTNERS_TOPIC_ID=${TOPIC_GENERAL}
 ADMIN_REPORTS_ENABLED=true
 ADMIN_REPORTS_CHAT_ID=${NOTIF_CHAT_ID}
 ADMIN_REPORTS_TOPIC_ID=${TOPIC_REPORTS}
-ADMIN_REPORTS_SEND_TIME=10:00
+ADMIN_REPORTS_SEND_TIME=03:00
 
 # ── Поддержка и тикеты ────────────────────────────────────────
 SUPPORT_MENU_ENABLED=true
@@ -388,8 +388,9 @@ DEFAULT_AUTOPAY_DAYS_BEFORE=3
 AUTOPAY_FAIL_MAX_NOTIFICATIONS=2
 AUTOPAY_FAIL_FINAL_REMINDER_HOURS=3
 
-# ── Платёжные системы (выключены, настроить вручную) ──────────
-TELEGRAM_STARS_ENABLED=false
+# ── Платёжные системы ─────────────────────────────────────────
+# Telegram Stars — дефолтный метод (нативный, доп. настройки не нужны)
+TELEGRAM_STARS_ENABLED=true
 YOOKASSA_ENABLED=false
 CRYPTOBOT_ENABLED=false
 HELEKET_ENABLED=false
