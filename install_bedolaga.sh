@@ -8,7 +8,7 @@ set -euo pipefail
 cd /  # фиксируем CWD до любых операций с директориями
 
 INSTALL_DIR="/opt/bedolaga"
-REPO_URL="https://github.com/BEDOLAGA-DEV/remnawave-bedolaga-telegram-bot.git"
+REPO_URL="https://github.com/FnoUp/remnawave-bedolaga-telegram-bot.git"  # форк с фичей «оплата через поддержку»
 REMNAWAVE_DIR="/opt/remnawave"
 REMNAWAVE_NETWORK="remnawave-network"
 SELF_PATH="/usr/local/bin/bedolaga"
