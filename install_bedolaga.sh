@@ -314,6 +314,16 @@ ADMIN_REPORTS_CHAT_ID=${NOTIF_CHAT_ID}
 ADMIN_REPORTS_TOPIC_ID=${TOPIC_REPORTS}
 ADMIN_REPORTS_SEND_TIME=03:00
 
+# ── Гайд «Как подключиться» (выключен, настроить вручную) ─────
+# Чтобы включить: 1) сделайте видео-инструкцию и Telegraph-статью
+# (https://telegra.ph — Create Account → Create Page, видео вставьте
+# отдельным сообщением бота, т.к. Telegraph часто не принимает upload видео)
+# 2) положите видео в ${INSTALL_DIR}/uploads/guides/<имя>.mp4
+# 3) впишите ссылку и путь ниже, включите, перезапустите: docker compose restart bot
+CONNECTION_GUIDE_ENABLED=false
+CONNECTION_GUIDE_URL=
+CONNECTION_GUIDE_VIDEO_PATH=/app/uploads/guides/connection_guide.mp4
+
 # ── Поддержка и тикеты ────────────────────────────────────────
 SUPPORT_MENU_ENABLED=true
 SUPPORT_SYSTEM_MODE=both
