@@ -8,6 +8,9 @@ set -euo pipefail
 cd /  # фиксируем CWD до любых операций с директориями
 
 INSTALL_DIR="/opt/bedolaga"
+# ВНЕ INSTALL_DIR — переустановка (rm -rf $INSTALL_DIR) сюда не долетает.
+# Тут живут: видео гайдов, вспомогательные скрипты. Переживают любой bedolaga-переустанов.
+ASSETS_DIR="/opt/bedolaga-assets"
 REPO_URL="https://github.com/FnoUp/remnawave-bedolaga-telegram-bot.git"  # форк с фичей «оплата через поддержку»
 REMNAWAVE_DIR="/opt/remnawave"
 REMNAWAVE_NETWORK="remnawave-network"
@@ -333,11 +336,13 @@ ADMIN_REPORTS_SEND_TIME=03:00
 # Чтобы включить: 1) сделайте видео-инструкцию и Telegraph-статью
 # (https://telegra.ph — Create Account → Create Page, видео вставьте
 # отдельным сообщением бота, т.к. Telegraph часто не принимает upload видео)
-# 2) положите видео в ${INSTALL_DIR}/uploads/guides/<имя>.mp4
-# 3) впишите ссылку и путь ниже, включите, перезапустите: docker compose restart bot
+# 2) положите видео в ${ASSETS_DIR}/guides/<имя>.mp4 — эта папка ВНЕ
+#    ${INSTALL_DIR}, переустановка (bedolaga) её не трогает и не удаляет
+# 3) впишите ссылку и путь ниже, включите, пересоздайте контейнер:
+#    cd ${INSTALL_DIR} && docker compose up -d bot   (restart НЕ подхватит .env!)
 CONNECTION_GUIDE_ENABLED=false
 CONNECTION_GUIDE_URL=
-CONNECTION_GUIDE_VIDEO_PATH=/app/uploads/guides/connection_guide.mp4
+CONNECTION_GUIDE_VIDEO_PATH=/app/assets/guides/connection_guide.mp4
 
 # ── Поддержка и тикеты ────────────────────────────────────────
 SUPPORT_MENU_ENABLED=true
@@ -495,7 +500,9 @@ log_ok ".env создан"
 # ── ШАГ 8: docker-compose.override.yml ───────────────────────
 log_step "ШАГ 8: Подключение к сети Remnawave"
 
-cat > "$INSTALL_DIR/docker-compose.override.yml" << 'OVERRIDE_EOF'
+mkdir -p "$ASSETS_DIR"/{guides,scripts}
+
+cat > "$INSTALL_DIR/docker-compose.override.yml" << OVERRIDE_EOF
 networks:
   remnawave-network:
     name: remnawave-network
@@ -508,9 +515,11 @@ services:
       remnawave-network:
         aliases:
           - remnawave_bot
+    volumes:
+      - ${ASSETS_DIR}/guides:/app/assets/guides:ro
 OVERRIDE_EOF
 
-log_ok "docker-compose.override.yml создан (alias: remnawave_bot)"
+log_ok "docker-compose.override.yml создан (alias: remnawave_bot, assets: ${ASSETS_DIR})"
 
 # ── ШАГ 9: Сборка и запуск ────────────────────────────────────
 log_step "ШАГ 9: Сборка Docker-образа (2–5 минут)"
@@ -559,21 +568,19 @@ fi
 # ── ШАГ 12: Вспомогательные скрипты ───────────────────────────
 log_step "ШАГ 12: Установка вспомогательных скриптов"
 
-# Эти скрипты НЕ часть git-репозитория бота — при `bedolaga` (переустановка
-# с нуля) каталог $INSTALL_DIR удаляется и клонируется заново, унося их с
-# собой. Поэтому качаем их отдельно при каждом прогоне — переустановка их
-# больше не теряет.
+# Эти скрипты НЕ часть git-репозитория бота. Качаем в $ASSETS_DIR (переживает
+# rm -rf $INSTALL_DIR при переустановке) и симлинкуем в $INSTALL_DIR для
+# удобства (cd $INSTALL_DIR && bash update_safe.sh — привычно работает).
 HELPER_SCRIPTS_BASE="https://raw.githubusercontent.com/FnoUp/bedolaga_installer/main"
 for _f in sim_topics.py test_notifications.sh certbot_tls_hook.sh deploy_stable.sh update_safe.sh; do
-    if curl -fsSL "${HELPER_SCRIPTS_BASE}/${_f}" -o "${INSTALL_DIR}/${_f}" 2>/dev/null; then
-        chmod +x "${INSTALL_DIR}/${_f}"
+    if curl -fsSL "${HELPER_SCRIPTS_BASE}/${_f}" -o "${ASSETS_DIR}/scripts/${_f}" 2>/dev/null; then
+        chmod +x "${ASSETS_DIR}/scripts/${_f}"
+        ln -sf "${ASSETS_DIR}/scripts/${_f}" "${INSTALL_DIR}/${_f}"
     else
         log_warn "Не удалось скачать ${_f} (не критично, установка продолжается)"
     fi
 done
-log_ok "Вспомогательные скрипты → ${INSTALL_DIR}/"
-
-mkdir -p "$INSTALL_DIR/uploads/guides"
+log_ok "Вспомогательные скрипты → ${ASSETS_DIR}/scripts/ (симлинки в ${INSTALL_DIR}/)"
 
 # ── ШАГ 13: TLS-уведомления через certbot hook ─────────────────
 log_step "ШАГ 13: Установка TLS-уведомлений"
