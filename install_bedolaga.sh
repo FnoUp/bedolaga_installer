@@ -249,7 +249,8 @@ log_step "ШАГ 7: Создание .env"
 cat > "$INSTALL_DIR/.env" << ENVEOF
 # Bedolaga — сгенерировано $(date '+%Y-%m-%d %H:%M:%S')
 # Редактировать: nano ${INSTALL_DIR}/.env
-# Перезапустить: cd ${INSTALL_DIR} && docker compose restart bot
+# Применить: cd ${INSTALL_DIR} && docker compose up -d bot
+# (НЕ restart — Docker не перечитывает .env при restart, только при пересоздании контейнера)
 
 # ── Telegram ──────────────────────────────────────────────────
 BOT_TOKEN=${BOT_TOKEN}
@@ -700,7 +701,7 @@ echo -e "  Команда:     ${CYAN}bedolaga${NC} (повторная уста
 echo ""
 echo -e "${BOLD}Управление:${NC}"
 echo -e "  Логи:        ${CYAN}cd ${INSTALL_DIR} && docker compose logs -f bot${NC}"
-echo -e "  Перезапуск:  ${CYAN}cd ${INSTALL_DIR} && docker compose restart bot${NC}"
+echo -e "  Применить .env: ${CYAN}cd ${INSTALL_DIR} && docker compose up -d bot${NC}  (не restart!)"
 echo -e "  Остановка:   ${CYAN}cd ${INSTALL_DIR} && docker compose down${NC}"
 echo -e "  Обновление:  ${CYAN}bedolaga${NC}"
 echo ""
