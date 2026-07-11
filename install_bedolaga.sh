@@ -60,6 +60,9 @@ ask_secret() {
 # ── Флаги состояния ───────────────────────────────────────────
 INSTALL_OK=false
 RW_ENV_BACKUP=""
+# true = обновляем УЖЕ РАБОТАЮЩУЮ установку — при сбое НЕЛЬЗЯ удалять
+# каталог/volumes (там боевая БД). false = ставим с нуля, чистить безопасно.
+IS_UPDATE_MODE=false
 
 # ── Очистка при прерывании или ошибке ─────────────────────────
 cleanup() {
@@ -67,22 +70,31 @@ cleanup() {
     set +e
 
     echo ""
-    log_warn "Установка не завершена. Удаляю незавершённые файлы..."
-
-    if [[ -d "$INSTALL_DIR" ]]; then
-        cd "$INSTALL_DIR" 2>/dev/null && docker compose down --volumes 2>/dev/null || true
-        cd / && rm -rf "$INSTALL_DIR"
-        log_info "Удалено: $INSTALL_DIR"
+    if [[ "$IS_UPDATE_MODE" == "true" ]]; then
+        # Обновление сорвалось на git pull/build — старые контейнеры ещё
+        # работают на предыдущем образе (up -d не выполнялся). НЕ трогаем
+        # каталог и volumes, иначе стираем боевую БД. Только откатываем код.
+        log_error "Обновление не завершилось. Старая версия продолжает работать."
+        if [[ -d "$INSTALL_DIR" ]]; then
+            cd "$INSTALL_DIR" 2>/dev/null && git reset --hard HEAD@{1} 2>/dev/null || true
+        fi
+        log_warn "Повторите: ${BOLD}bedolaga${NC} — данные и текущая версия не затронуты"
+    else
+        log_warn "Установка не завершена. Удаляю незавершённые файлы..."
+        if [[ -d "$INSTALL_DIR" ]]; then
+            cd "$INSTALL_DIR" 2>/dev/null && docker compose down --volumes 2>/dev/null || true
+            cd / && rm -rf "$INSTALL_DIR"
+            log_info "Удалено: $INSTALL_DIR"
+        fi
+        echo ""
+        log_warn "Повторите установку командой: ${BOLD}bedolaga${NC}"
     fi
 
     if [[ -n "$RW_ENV_BACKUP" ]] && [[ -f "$RW_ENV_BACKUP" ]]; then
         cp "$RW_ENV_BACKUP" "${REMNAWAVE_DIR}/.env"
-        cd "$REMNAWAVE_DIR" 2>/dev/null && docker compose restart remnawave 2>/dev/null || true
+        cd "$REMNAWAVE_DIR" 2>/dev/null && docker compose up -d remnawave 2>/dev/null || true
         log_info "Восстановлен: ${REMNAWAVE_DIR}/.env"
     fi
-
-    echo ""
-    log_warn "Повторите установку командой: ${BOLD}bedolaga${NC}"
 }
 
 trap cleanup EXIT
@@ -153,6 +165,7 @@ if [[ -d "$INSTALL_DIR" ]]; then
         log_warn "Bedolaga уже установлена и запущена"
         read -rp $'\e[1;33m?\e[0m Обновить (git pull + rebuild)? [да/нет]: ' _ans
         if [[ "$_ans" =~ ^(да|yes|y|д)$ ]]; then
+            IS_UPDATE_MODE=true
             [[ -f "$INSTALL_DIR/.env" ]] && cp "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.bak.$(date +%F-%H%M%S)"
             cd "$INSTALL_DIR"
             git pull origin main
@@ -267,7 +280,9 @@ REMNAWAVE_USER_DELETE_MODE=disable
 REMNAWAVE_USER_DESCRIPTION_TEMPLATE=Bot user: {full_name} {username}
 REMNAWAVE_USER_USERNAME_TEMPLATE=user_{telegram_id}
 REMNAWAVE_AUTO_SYNC_ENABLED=true
-REMNAWAVE_AUTO_SYNC_TIMES=03:00
+# 02:45 — раньше отчётов/ротации логов (03:00), чтобы не биться в одну минуту
+# и отчёт строился по уже синхронизированным данным
+REMNAWAVE_AUTO_SYNC_TIMES=02:45
 
 # ── Remnawave Webhooks ────────────────────────────────────────
 REMNAWAVE_WEBHOOK_ENABLED=true
@@ -531,18 +546,37 @@ else
     set_env "WEBHOOK_SECRET_HEADER" "${REMNAWAVE_WEBHOOK_SECRET}"                 "$REMNAWAVE_ENV"
     log_ok "Вебхук прописан"
 
-    log_info "Перезапускаю Remnawave..."
+    log_info "Пересоздаю контейнер Remnawave (restart не подхватывает новый .env)..."
     cd "$REMNAWAVE_DIR"
-    docker compose restart remnawave
-    log_ok "Remnawave перезапущена"
+    docker compose up -d remnawave
+    log_ok "Remnawave перезапущена с новым webhook-конфигом"
     cd "$INSTALL_DIR"
 
     # Бэкап больше не нужен для отката — установка успешна
     RW_ENV_BACKUP=""
 fi
 
-# ── ШАГ 12: TLS-уведомления через certbot hook ────────────────
-log_step "ШАГ 12: Установка TLS-уведомлений"
+# ── ШАГ 12: Вспомогательные скрипты ───────────────────────────
+log_step "ШАГ 12: Установка вспомогательных скриптов"
+
+# Эти скрипты НЕ часть git-репозитория бота — при `bedolaga` (переустановка
+# с нуля) каталог $INSTALL_DIR удаляется и клонируется заново, унося их с
+# собой. Поэтому качаем их отдельно при каждом прогоне — переустановка их
+# больше не теряет.
+HELPER_SCRIPTS_BASE="https://raw.githubusercontent.com/FnoUp/bedolaga_installer/main"
+for _f in sim_topics.py test_notifications.sh certbot_tls_hook.sh deploy_stable.sh update_safe.sh; do
+    if curl -fsSL "${HELPER_SCRIPTS_BASE}/${_f}" -o "${INSTALL_DIR}/${_f}" 2>/dev/null; then
+        chmod +x "${INSTALL_DIR}/${_f}"
+    else
+        log_warn "Не удалось скачать ${_f} (не критично, установка продолжается)"
+    fi
+done
+log_ok "Вспомогательные скрипты → ${INSTALL_DIR}/"
+
+mkdir -p "$INSTALL_DIR/uploads/guides"
+
+# ── ШАГ 13: TLS-уведомления через certbot hook ─────────────────
+log_step "ШАГ 13: Установка TLS-уведомлений"
 
 CERTBOT_HOOK_DIR="/etc/letsencrypt/renewal-hooks/deploy"
 CERTBOT_HOOK_FILE="$CERTBOT_HOOK_DIR/bedolaga-tls-notify.sh"
@@ -617,22 +651,33 @@ else
     log_warn "certbot не найден — TLS-уведомления не настроены"
 fi
 
-# ── ШАГ 13: Проверка ──────────────────────────────────────────
-log_step "ШАГ 13: Проверка состояния"
+# ── ШАГ 14: Проверка ──────────────────────────────────────────
+log_step "ШАГ 14: Проверка состояния"
 
 echo -n "Жду старта бота"
+BOT_HEALTHY=false
 for i in {1..18}; do
     sleep 5; echo -n "."
     status=$(docker compose -f "$INSTALL_DIR/docker-compose.yml" \
         -f "$INSTALL_DIR/docker-compose.override.yml" \
         ps --format '{{.Service}} {{.State}}' 2>/dev/null | \
         grep '^bot' | awk '{print $2}' || true)
-    [[ "$status" == "running" ]] && { echo ""; break; }
+    if [[ "$status" == "running" ]]; then
+        # "running" ещё не значит "не падает в цикле" — проверяем логи на трейсбеки
+        if ! docker compose logs --tail=40 bot 2>&1 | grep -qiE 'Traceback|CRITICAL|Migration failed'; then
+            BOT_HEALTHY=true
+            break
+        fi
+    fi
 done
 echo ""
 
 cd "$INSTALL_DIR"
 docker compose ps
+
+if ! $BOT_HEALTHY; then
+    log_warn "Бот запущен, но в логах есть ошибки — проверьте: docker compose logs --tail=80 bot"
+fi
 
 # ── Успех ─────────────────────────────────────────────────────
 INSTALL_OK=true
