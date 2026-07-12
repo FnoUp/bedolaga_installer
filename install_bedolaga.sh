@@ -344,6 +344,9 @@ ADMIN_REPORTS_SEND_TIME=03:00
 CONNECTION_GUIDE_ENABLED=false
 CONNECTION_GUIDE_URL=
 CONNECTION_GUIDE_VIDEO_PATH=/app/assets/guides/connection_guide.mp4
+# Отдельное видео/фото: смена региона App Store (кнопка «🌍 Смена региона»
+# показывается всегда; пока файла нет — юзер видит «скоро добавим»)
+CONNECTION_GUIDE_REGION_VIDEO_PATH=
 
 # ── Поддержка и тикеты ────────────────────────────────────────
 SUPPORT_MENU_ENABLED=true
@@ -466,6 +469,12 @@ BLACKLIST_CHECK_ENABLED=false
 ENABLE_LOGO_MODE=false
 MAIN_MENU_MODE=default
 CONNECT_BUTTON_MODE=miniapp_subscription
+# Чтобы включить зашифрованные happ://crypt4/ ссылки вместо обычной
+# subscription-ссылки: CONNECT_BUTTON_MODE=happ_cryptolink и указать
+# HAPP_CRYPTOLINK_REDIRECT_TEMPLATE (страница-редирект нужна, т.к. Telegram
+# Desktop блокирует кастомную схему happ:// — см. redirect-page в репо).
+# Пусто = функция выключена, поведение по умолчанию не меняется.
+HAPP_CRYPTOLINK_REDIRECT_TEMPLATE=
 HIDE_SUBSCRIPTION_LINK=false
 DISABLE_WEB_PAGE_PREVIEW=false
 SKIP_RULES_ACCEPT=false
