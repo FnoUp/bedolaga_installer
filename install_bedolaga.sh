@@ -469,8 +469,14 @@ BLACKLIST_CHECK_ENABLED=false
 ENABLE_LOGO_MODE=false
 MAIN_MENU_MODE=default
 CONNECT_BUTTON_MODE=miniapp_subscription
+# Remnawave >=2.8.0 не генерирует crypt-ссылки сам — бот шифрует локально
+# (RSA, без сети/сторонних сервисов). true = crypt-ссылка доступна везде,
+# где показывается пользователю (текстом в сообщениях, независимо от
+# CONNECT_BUTTON_MODE ниже).
+HAPP_CRYPTOLINK_LOCAL_ENCRYPTION_ENABLED=true
 # Чтобы включить зашифрованные happ://crypt4/ ссылки вместо обычной
-# subscription-ссылки: CONNECT_BUTTON_MODE=happ_cryptolink и указать
+# subscription-ссылки НА САМОЙ КНОПКЕ «Подключиться»:
+# CONNECT_BUTTON_MODE=happ_cryptolink и указать
 # HAPP_CRYPTOLINK_REDIRECT_TEMPLATE (страница-редирект нужна, т.к. Telegram
 # Desktop блокирует кастомную схему happ:// — см. redirect-page в репо).
 # Пусто = функция выключена, поведение по умолчанию не меняется.
