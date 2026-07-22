@@ -38,6 +38,10 @@ set_env() {
 ask() {
     local _var=$1 _msg=$2 _default=${3:-}
     local _value
+    # Неинтерактивный режим: если переменная уже задана через окружение
+    # (например VPN Node Manager вызывает VAR=... bash install_bedolaga.sh) —
+    # не спрашиваем повторно.
+    if [[ -n "${!_var:-}" ]]; then return; fi
     while true; do
         if [[ -n "$_default" ]]; then
             read -rp $'\e[0;36m?\e[0m '"$_msg [$_default]: " _value
@@ -53,6 +57,7 @@ ask() {
 ask_secret() {
     local _var=$1 _msg=$2
     local _value
+    if [[ -n "${!_var:-}" ]]; then return; fi
     while true; do
         read -srp $'\e[0;36m?\e[0m '"$_msg: " _value; echo
         [[ -n "$_value" ]] && { printf -v "$_var" '%s' "$_value"; return; }
@@ -166,7 +171,11 @@ if [[ -d "$INSTALL_DIR" ]]; then
 
     if $BOT_RUNNING; then
         log_warn "Bedolaga уже установлена и запущена"
-        read -rp $'\e[1;33m?\e[0m Обновить (git pull + rebuild)? [да/нет]: ' _ans
+        if [[ -n "${AUTO_UPDATE:-}" ]]; then
+            _ans="$AUTO_UPDATE"
+        else
+            read -rp $'\e[1;33m?\e[0m Обновить (git pull + rebuild)? [да/нет]: ' _ans
+        fi
         if [[ "$_ans" =~ ^(да|yes|y|д)$ ]]; then
             IS_UPDATE_MODE=true
             [[ -f "$INSTALL_DIR/.env" ]] && cp "$INSTALL_DIR/.env" "$INSTALL_DIR/.env.bak.$(date +%F-%H%M%S)"
